@@ -61,6 +61,11 @@ jobs:
           path: out/
           retention-days: 7
 
+      - name: Purger la branche ci-test-output (nettoyage)
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" --delete ci-test-output 2>/dev/null || true
+
       - name: Pousser la sortie sur ci-test-output (debug)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.push_output }}
         run: |
