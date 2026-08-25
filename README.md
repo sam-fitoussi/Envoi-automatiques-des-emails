@@ -30,7 +30,7 @@ GitHub Actions (cron lundi 12:00 UTC = 14:00 Paris l'été)
 
 ## Envoyer à la main (réunion décalée, renvoi…)
 
-Onglet **Actions → « 📧 Envoyer le recap maintenant » → Run workflow → Run** :
+Onglet **Actions → « 📧 Envoyer le recap Stalling » → Run workflow → Run** :
 envoie immédiatement le recap aux 4 destinataires habituels, sans option à
 choisir. (Marche depuis le navigateur, y compris sur mobile.)
 

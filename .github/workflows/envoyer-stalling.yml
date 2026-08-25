@@ -1,6 +1,6 @@
-name: "📧 Envoyer le recap maintenant"
+name: "📧 Envoyer le recap Stalling"
 
-# Bouton d'envoi manuel : Actions → « 📧 Envoyer le recap maintenant » → Run workflow.
+# Bouton d'envoi manuel : Actions → « 📧 Envoyer le recap Stalling » → Run workflow.
 # Envoie immédiatement le recap Stalling aux 4 destinataires habituels,
 # exactement comme le cron du lundi matin.
 
