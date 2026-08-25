@@ -1,7 +1,7 @@
 # Envoi automatique des emails — Recap Stalling hebdo
 
 Script déterministe qui remplace la tâche programmée Claude : chaque lundi
-matin, il récupère les deals ouverts des stages **Spotted Hot** (17),
+à 14h, il récupère les deals ouverts des stages **Spotted Hot** (17),
 **Stalling tier 1** (37) et **Stalling tier 2** (38) du pipeline Pipedrive,
 construit le mail HTML de préparation du point hebdo, et l'envoie depuis
 Outlook (samuel@frst.vc) via un webhook Zapier.
@@ -9,7 +9,7 @@ Outlook (samuel@frst.vc) via un webhook Zapier.
 ## Architecture
 
 ```
-GitHub Actions (cron lundi 05:00 UTC)
+GitHub Actions (cron lundi 12:00 UTC = 14:00 Paris l'été)
    └─ weekly_recap.py
         ├─ API Pipedrive (lecture seule : GET uniquement)
         │    ├─ /api/v2/deals?stage_id=…&status=open   (pagination par curseur)
