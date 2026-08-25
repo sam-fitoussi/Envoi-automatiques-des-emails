@@ -5,6 +5,9 @@ on:
     # Lundi 05:00 UTC = 07:00 Paris (été) / 06:00 Paris (hiver).
     # NB : les crons ne tournent que depuis la branche par défaut (main).
     - cron: '0 5 * * 1'
+  push:
+    # Dry-run de contrôle à chaque push sur la branche de dev (jamais d'envoi).
+    branches: [claude/founders-weekly-script-syy48l]
   workflow_dispatch:
     inputs:
       mode:
@@ -42,12 +45,12 @@ jobs:
           PIPEDRIVE_API_TOKEN: ${{ secrets.PIPEDRIVE_API_TOKEN }}
           ZAPIER_HOOK_URL: ${{ secrets.ZAPIER_HOOK_URL }}
         run: |
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            python weekly_recap.py --send --out-dir out
-          elif [ "${{ inputs.mode }}" = "send" ]; then
-            python weekly_recap.py --send --out-dir out --to "${{ inputs.recipients }}"
+          TO="${{ inputs.recipients }}"
+          [ -z "$TO" ] && TO="samuel@frst.vc,bruno@frst.vc,pierre@frst.vc,lio@frst.vc"
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.mode }}" = "send" ]; then
+            python weekly_recap.py --send --out-dir out --to "$TO"
           else
-            python weekly_recap.py --dry-run --out-dir out --to "${{ inputs.recipients }}"
+            python weekly_recap.py --dry-run --out-dir out --to "$TO"
           fi
 
       - name: Uploader l'artefact
@@ -59,7 +62,7 @@ jobs:
           retention-days: 7
 
       - name: Pousser la sortie sur ci-test-output (debug)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.push_output }}
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.push_output) }}
         run: |
           cd out
           git init -b ci-test-output
