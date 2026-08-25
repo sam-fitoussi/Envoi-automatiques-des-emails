@@ -1,0 +1,78 @@
+name: Recap Stalling hebdo
+
+on:
+  schedule:
+    # Lundi 05:00 UTC = 07:00 Paris (été) / 06:00 Paris (hiver).
+    # NB : les crons ne tournent que depuis la branche par défaut (main).
+    - cron: '0 5 * * 1'
+  push:
+    # Dry-run de contrôle à chaque push sur la branche de dev (jamais d'envoi).
+    branches: [claude/founders-weekly-script-syy48l]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run = générer sans envoyer ; send = envoyer via le webhook Zapier"
+        type: choice
+        options: [dry-run, send]
+        default: dry-run
+      recipients:
+        description: "Destinataires (séparés par des virgules)"
+        type: string
+        default: "samuel@frst.vc,bruno@frst.vc,pierre@frst.vc,lio@frst.vc"
+      push_output:
+        description: "Pousser le HTML généré sur la branche ci-test-output (debug)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  recap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+
+      - name: Générer / envoyer le recap
+        env:
+          PIPEDRIVE_API_TOKEN: ${{ secrets.PIPEDRIVE_API_TOKEN }}
+          ZAPIER_HOOK_URL: ${{ secrets.ZAPIER_HOOK_URL }}
+        run: |
+          TO="${{ inputs.recipients }}"
+          [ -z "$TO" ] && TO="samuel@frst.vc,bruno@frst.vc,pierre@frst.vc,lio@frst.vc"
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.mode }}" = "send" ]; then
+            python weekly_recap.py --send --out-dir out --to "$TO"
+          else
+            python weekly_recap.py --dry-run --out-dir out --to "$TO"
+          fi
+
+      - name: Uploader l'artefact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recap
+          path: out/
+          retention-days: 7
+
+      - name: Purger la branche ci-test-output (nettoyage)
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" --delete ci-test-output 2>/dev/null || true
+
+      - name: Pousser la sortie sur ci-test-output (debug)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.push_output }}
+        run: |
+          cd out
+          git init -b ci-test-output
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add -A
+          git commit -m "Sortie dry-run du recap"
+          git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" ci-test-output
