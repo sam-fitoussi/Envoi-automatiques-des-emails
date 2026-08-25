@@ -262,9 +262,12 @@ def linkify(s):
     """Rend cliquables les URLs nues (hors liens déjà posés)."""
     def repl(m):
         url, trail = m.group(1), ""
-        while url and url[-1] in ".,;:)]}":
-            trail = url[-1] + trail
-            url = url[:-1]
+        while True:
+            ent = re.search(r"(?:&(?:quot|lt|gt|#x27|#39);?|[.,;:)\]}])+$", url)
+            if not ent:
+                break
+            trail = url[ent.start():] + trail
+            url = url[:ent.start()]
         return f'<a href="{url}">{url}</a>{trail}'
     return re.sub(r'(?<!["\'>=])(https?://[^\s<]+)', repl, s)
 

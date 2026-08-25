@@ -62,7 +62,7 @@ jobs:
           retention-days: 7
 
       - name: Pousser la sortie sur ci-test-output (debug)
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.push_output) }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.push_output }}
         run: |
           cd out
           git init -b ci-test-output
