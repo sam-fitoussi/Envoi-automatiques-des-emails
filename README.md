@@ -28,7 +28,13 @@ GitHub Actions (cron lundi 05:00 UTC)
 | `PIPEDRIVE_API_TOKEN` | Token API Pipedrive (Paramètres → Préférences personnelles → API) |
 | `ZAPIER_HOOK_URL` | URL du Catch Hook du Zap qui envoie le mail via Outlook |
 
-## Lancer à la main
+## Envoyer à la main (réunion décalée, renvoi…)
+
+Onglet **Actions → « 📧 Envoyer le recap maintenant » → Run workflow → Run** :
+envoie immédiatement le recap aux 4 destinataires habituels, sans option à
+choisir. (Marche depuis le navigateur, y compris sur mobile.)
+
+## Lancer à la main avec options (test, debug)
 
 Onglet **Actions → Recap Stalling hebdo → Run workflow** :
 
