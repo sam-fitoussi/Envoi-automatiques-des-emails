@@ -2,9 +2,9 @@ name: Recap Stalling hebdo
 
 on:
   schedule:
-    # Lundi 05:00 UTC = 07:00 Paris (été) / 06:00 Paris (hiver).
+    # Lundi 12:00 UTC = 14:00 Paris (été) / 13:00 Paris (hiver).
     # NB : les crons ne tournent que depuis la branche par défaut (main).
-    - cron: '0 5 * * 1'
+    - cron: '0 12 * * 1'
   push:
     # Dry-run de contrôle à chaque push sur la branche de dev (jamais d'envoi).
     branches: [claude/founders-weekly-script-syy48l]
