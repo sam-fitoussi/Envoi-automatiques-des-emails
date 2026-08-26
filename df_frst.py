@@ -75,9 +75,9 @@ def cofounder_html(p):
     return name
 
 
-def person_text(p):
+def person_text(p, pipedrive_fallback=True):
     url = ensure_url(p.get("linkedin"))
-    if not url and p.get("id"):
+    if not url and pipedrive_fallback and p.get("id"):
         url = f"https://app.pipedrive.com/person/{p['id']}"
     return f"{p['name']} ({url})" if url else p["name"]
 
@@ -120,7 +120,7 @@ def render_deal_text(deal, extras):
     out.append(f"  https://app.pipedrive.com/deal/{deal_id}")
     founder = extras.get("primary")
     if founder:
-        out.append(f"  Founder : {person_text(founder)}")
+        out.append(f"  Founder : {person_text(founder, pipedrive_fallback=False)}")
     cofounders = extras.get("cofounders") or []
     if cofounders:
         out.append("  Co-founders : " + " ; ".join(person_text(p) for p in cofounders))
