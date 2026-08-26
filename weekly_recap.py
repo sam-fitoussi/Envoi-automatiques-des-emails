@@ -109,7 +109,8 @@ def fetch_person(pid):
     data = api_get(f"/api/v2/persons/{pid}").get("data") or {}
     name = data.get("name") or " ".join(
         filter(None, [data.get("first_name"), data.get("last_name")])).strip()
-    return {"name": name or "—", "linkedin": custom_field(data, FIELD_LINKEDIN)}
+    return {"id": pid, "name": name or "—",
+            "linkedin": custom_field(data, FIELD_LINKEDIN)}
 
 
 def fetch_deal_extras(deal):
