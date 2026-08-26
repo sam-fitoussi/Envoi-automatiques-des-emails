@@ -1,4 +1,25 @@
-# Envoi automatique des emails — Recap Stalling hebdo
+# Envoi automatique des emails
+
+Deux envois hebdomadaires automatiques, construits sur le même socle
+(API Pipedrive en lecture seule → HTML → webhook Zapier → Outlook
+samuel@frst.vc) :
+
+| Email | Script | Cron | Bouton manuel |
+|---|---|---|---|
+| **Recap Stalling** (lundi 14h Paris) | `weekly_recap.py` | `weekly-recap.yml` | « 📧 Envoyer le recap Stalling » |
+| **DF Frst** (vendredi 19h Paris) | `df_frst.py` | `df-frst.yml` | « 📧 Envoyer le DF Frst » |
+
+## DF Frst — recap du dealflow (vendredi 19h)
+
+Objet « DF Frst ». Trois blocs : **PM** (stage 32), **Instruction** (stage 4),
+**Call Done** (stage 3), avec pour chaque deal ouvert : nom en gras cliquable
+vers la fiche CRM + description entre parenthèses, founder en rouge (lien
+LinkedIn), co-founders en vert séparés par des points-virgules (lien LinkedIn,
+sinon fiche Pipedrive), et la dernière note. Tri : arrivées les plus récentes
+dans le stage en premier. `df_frst.py` réutilise les fonctions de
+`weekly_recap.py`.
+
+# Recap Stalling hebdo
 
 Script déterministe qui remplace la tâche programmée Claude : chaque lundi
 à 14h, il récupère les deals ouverts des stages **Spotted Hot** (17),
