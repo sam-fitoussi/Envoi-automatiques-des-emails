@@ -36,7 +36,6 @@ from weekly_recap import (
     fetch_stage_deals,
     fr_date,
     html_to_text,
-    parse_dt,
     send_via_zapier,
     step_summary,
     write_outputs,
@@ -104,9 +103,8 @@ def render_deal_html(deal, extras):
 
     notes = extras.get("notes") or []
     if notes:
-        date = fr_date(parse_dt(notes[0].get("add_time")))
         body = clean_note_html(notes[0].get("content")).replace("\n", "<br>")
-        lines.append(f'<p style="margin:6px 0 0; color:#222;">Note du {date} : {body}</p>')
+        lines.append(f'<p style="margin:6px 0 0; color:#222;">{body}</p>')
 
     return ('<div style="padding:12px 0; border-top:1px solid #e5e5e5;">'
             + "".join(lines) + "</div>")
@@ -126,10 +124,8 @@ def render_deal_text(deal, extras):
         out.append("  Co-founders : " + " ; ".join(person_text(p) for p in cofounders))
     notes = extras.get("notes") or []
     if notes:
-        date = fr_date(parse_dt(notes[0].get("add_time")))
         body = html_to_text(clean_note_html(notes[0].get("content")))
-        body = "\n".join("  " + l for l in body.splitlines())
-        out.append(f"  Note du {date} :\n{body}")
+        out.append("\n".join("  " + l for l in body.splitlines()))
     return "\n".join(out)
 
 
