@@ -1,5 +1,11 @@
 {
   "_aide": "Heure de Paris (0-23, heures pleines). Jours en minuscules : lundi, mardi, mercredi, jeudi, vendredi, samedi, dimanche. L'envoi part dans l'heure qui suit l'heure indiquée.",
-  "recap_stalling": { "jour": "lundi", "heure": 14 },
-  "df_frst": { "jour": "vendredi", "heure": 19 }
+  "recap_stalling": {
+    "jour": "lundi",
+    "heure": 14
+  },
+  "df_frst": {
+    "jour": "vendredi",
+    "heure": 19
+  }
 }
