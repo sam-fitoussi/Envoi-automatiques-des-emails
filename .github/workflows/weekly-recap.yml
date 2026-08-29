@@ -1,10 +1,10 @@
 name: Recap Stalling hebdo
 
+# L'envoi planifié est géré par planificateur.yml + horaires.json (heure de
+# Paris). Ce workflow ne sert plus qu'aux lancements manuels avec options et
+# au dry-run de contrôle sur les pushs de dev.
+
 on:
-  schedule:
-    # Lundi 12:00 UTC = 14:00 Paris (été) / 13:00 Paris (hiver).
-    # NB : les crons ne tournent que depuis la branche par défaut (main).
-    - cron: '0 12 * * 1'
   push:
     # Dry-run de contrôle à chaque push sur la branche de dev (jamais d'envoi).
     branches: [claude/founders-weekly-script-syy48l]
@@ -47,7 +47,7 @@ jobs:
         run: |
           TO="${{ inputs.recipients }}"
           [ -z "$TO" ] && TO="samuel@frst.vc,bruno@frst.vc,pierre@frst.vc,lio@frst.vc"
-          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.mode }}" = "send" ]; then
+          if [ "${{ inputs.mode }}" = "send" ]; then
             python weekly_recap.py --send --out-dir out --to "$TO"
           else
             python weekly_recap.py --dry-run --out-dir out --to "$TO"
