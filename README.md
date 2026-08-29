@@ -9,6 +9,23 @@ samuel@frst.vc) :
 | **Recap Stalling** | `weekly_recap.py` | lundi 14h Paris | « 📧 Envoyer le recap Stalling » |
 | **DF Frst** | `df_frst.py` | vendredi 19h Paris | « 📧 Envoyer le DF Frst » |
 
+## Panneau de contrôle web (le plus simple pour l'équipe)
+
+**https://envois-frst.samuelfitoussi.workers.dev/1c94923b74819f227e62b68364e1a8bb**
+
+Page réservée à l'équipe (URL secrète, à ne pas partager hors Frst) qui
+permet, sans compte GitHub :
+
+- d'**envoyer immédiatement** le Recap Stalling ou le DF Frst (bouton rouge,
+  avec confirmation) ;
+- de **changer le jour et l'heure** de chaque envoi hebdomadaire (menus
+  déroulants, heure de Paris).
+
+Sous le capot : un Cloudflare Worker (code dans `panneau/worker.js`, déployé
+sur le compte Cloudflare de Samuel sous le nom `envois-frst`) qui déclenche
+les workflows GitHub via un jeton à portée minimale (secret `GITHUB_TOKEN`
+du Worker : Actions en écriture + lecture du contenu, sur ce seul repo).
+
 ## Changer le jour ou l'heure d'un envoi
 
 Les horaires vivent dans **`horaires.json`** (à la racine du repo), en
