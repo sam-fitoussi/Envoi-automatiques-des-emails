@@ -170,6 +170,20 @@ def days_since(dt, now):
 BLOCK_TAGS = {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6",
               "ul", "ol", "tr", "table", "blockquote", "pre"}
 
+# Le gras saisi dans Pipedrive est conservé dans le mail. Trois formes possibles
+# selon l'éditeur : <b>, <strong>, ou un style font-weight ; les titres (h1-h6)
+# s'affichent en gras dans le CRM, on les traite donc comme du gras.
+BOLD_TAGS = {"b", "strong"}
+HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+
+
+def is_bold_style(tag):
+    m = re.search(r"font-weight\s*:\s*([a-z0-9]+)", (tag.get("style") or "").lower())
+    if not m:
+        return False
+    v = m.group(1)
+    return v in ("bold", "bolder") or (v.isdigit() and int(v) >= 600)
+
 
 def repair_broken_tags(raw):
     """Répare les attributs dont le guillemet n'est jamais refermé avant '>'
@@ -189,32 +203,39 @@ def clean_note_html(raw):
         for child in node.children:
             if isinstance(child, NavigableString):
                 parts.append(("text", str(child)))
-            elif isinstance(child, Tag):
-                name = (child.name or "").lower()
-                if name == "br":
-                    parts.append(("nl", "\n"))
-                elif name == "a":
-                    href = (child.get("href") or "").strip()
-                    text = child.get_text(" ", strip=True) or href
-                    if href.lower().startswith("mailto:"):
-                        parts.append(("text", text if "@" in text else href[7:]))
-                    elif href:
-                        parts.append(("link", (href, text)))
-                    else:
-                        parts.append(("text", text))
-                elif name == "li":
-                    parts.append(("nl", "\n"))
-                    parts.append(("text", "• "))
-                    walk(child)
-                    parts.append(("nl", "\n"))
-                elif name in BLOCK_TAGS:
-                    parts.append(("nl", "\n"))
-                    walk(child)
-                    parts.append(("nl", "\n"))
-                elif name in ("style", "script", "head"):
-                    continue
-                else:  # span, b, strong, em, font… -> contenu seulement
-                    walk(child)
+                continue
+            if not isinstance(child, Tag):
+                continue
+            name = (child.name or "").lower()
+            if name in ("style", "script", "head"):
+                continue
+            if name == "br":
+                parts.append(("nl", "\n"))
+                continue
+            if name == "a":
+                href = (child.get("href") or "").strip()
+                text = child.get_text(" ", strip=True) or href
+                if href.lower().startswith("mailto:"):
+                    parts.append(("text", text if "@" in text else href[7:]))
+                elif href:
+                    parts.append(("link", (href, text)))
+                else:
+                    parts.append(("text", text))
+                continue
+
+            gras = name in BOLD_TAGS or name in HEADING_TAGS or is_bold_style(child)
+            saut = name == "li" or name in BLOCK_TAGS
+            if saut:
+                parts.append(("nl", "\n"))
+            if name == "li":
+                parts.append(("text", "• "))
+            if gras:
+                parts.append(("raw", "<strong>"))
+            walk(child)
+            if gras:
+                parts.append(("raw", "</strong>"))
+            if saut:
+                parts.append(("nl", "\n"))
 
     walk(soup)
 
@@ -224,13 +245,16 @@ def clean_note_html(raw):
             out.append(html.escape(val.replace("\xa0", " ")))
         elif kind == "nl":
             out.append("\n")
+        elif kind == "raw":
+            out.append(val)
         else:
             href, text = val
             out.append(f'<a href="{html.escape(href, quote=True)}">{html.escape(text)}</a>')
     s = "".join(out)
     s = re.sub(r"[ \t]+", " ", s)
     s = re.sub(r" ?\n ?", "\n", s)
-    s = re.sub(r"\n{3,}", "\n\n", s).strip()
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    s = re.sub(r"<strong>(\s*)</strong>", r"\1", s).strip()
     result = linkify(s)
 
     # Un attribut avec guillemet non fermé fait avaler le texte suivant par le
@@ -247,8 +271,11 @@ def naive_strip(raw):
     s = re.sub(r"(?is)<(style|script|head)[^>]*>.*?</\1>", " ", s)
     s = re.sub(r"(?i)<br\s*/?>", "\n", s)
     s = re.sub(r"(?i)</(p|div|li|h[1-6]|tr|ul|ol|blockquote)>", "\n", s)
+    # garder le gras : mis à l'abri le temps de retirer les autres balises
+    s = re.sub(r"(?i)<(/?)(?:b|strong)\s*/?>", "\x00\\1strong\x01", s)
     s = re.sub(r"<[^>]*>", " ", s)
     s = html.escape(html.unescape(s).replace("\xa0", " "))
+    s = s.replace("\x00", "<").replace("\x01", ">")
     s = re.sub(r"[ \t]+", " ", s)
     s = re.sub(r" ?\n ?", "\n", s)
     s = re.sub(r"\n{3,}", "\n\n", s).strip()
@@ -260,7 +287,7 @@ def visible_len(cleaned):
 
 
 def linkify(s):
-    """Rend cliquables les URLs nues (hors liens déjà posés)."""
+    """Rend cliquables les URLs nues, sans retoucher les liens déjà posés."""
     def repl(m):
         url, trail = m.group(1), ""
         while True:
@@ -270,7 +297,17 @@ def linkify(s):
             trail = url[ent.start():] + trail
             url = url[:ent.start()]
         return f'<a href="{url}">{url}</a>{trail}'
-    return re.sub(r'(?<!["\'>=])(https?://[^\s<]+)', repl, s)
+
+    def hors_liens(txt):
+        return re.sub(r"(https?://[^\s<]+)", repl, txt)
+
+    out, pos = [], 0
+    for m in re.finditer(r"<a\b[^>]*>.*?</a>", s, re.DOTALL):
+        out.append(hors_liens(s[pos:m.start()]))
+        out.append(m.group(0))
+        pos = m.end()
+    out.append(hors_liens(s[pos:]))
+    return "".join(out)
 
 
 def colorize_ai_findings(note_html):
@@ -278,9 +315,15 @@ def colorize_ai_findings(note_html):
     m = re.search(r"AI ?findings", note_html, re.IGNORECASE)
     if not m:
         return note_html
-    i = m.start()
-    return (note_html[:i]
-            + f'<span style="color:{GREEN}">' + note_html[i:] + "</span>")
+    avant, apres = note_html[:m.start()], note_html[m.start():]
+    # refermer le gras encore ouvert au point de coupure, puis le rouvrir dans
+    # le bloc vert : sans ça les balises s'entrecroiseraient.
+    ouverts = avant.count("<strong>") - avant.count("</strong>")
+    if ouverts > 0:
+        avant += "</strong>" * ouverts
+        apres = "<strong>" * ouverts + apres
+    out = avant + f'<span style="color:{GREEN}">' + apres + "</span>"
+    return re.sub(r"<strong>(\s*)</strong>", r"\1", out)
 
 
 def html_to_text(s):
