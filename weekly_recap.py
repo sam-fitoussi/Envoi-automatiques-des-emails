@@ -322,7 +322,8 @@ def colorize_ai_findings(note_html):
     if ouverts > 0:
         avant += "</strong>" * ouverts
         apres = "<strong>" * ouverts + apres
-    return avant + f'<span style="color:{GREEN}">' + apres + "</span>"
+    out = avant + f'<span style="color:{GREEN}">' + apres + "</span>"
+    return re.sub(r"<strong>(\s*)</strong>", r"\1", out)
 
 
 def html_to_text(s):
