@@ -134,6 +134,7 @@ Worker Cloudflare envois-frst (cron toutes les 10 min, lit horaires.json)
 | `GITHUB_TOKEN` | Jeton GitHub fine-grained limité à ce repo (Actions : Read and write ; Contents : Read-only). Il expire : la date est affichée en bas du panneau, un rappel part 14 jours avant. Pour le renouveler : recréer le même jeton, puis `PUT …/workers/scripts/envois-frst/secrets` (ou demander à Claude). |
 | `ZAPIER_HOOK_URL` | Même URL que le secret GitHub ; sert aux emails d'alerte. |
 | `PANEL_TOKEN` (variable) | Segment secret de l'URL du panneau. |
+| `ETAT` (espace KV `envois-frst-etat`) | Témoin de vie de l'horloge : heure et compte rendu du dernier passage du cron. Visible en bas du panneau (bandeau rouge si silence > 30 min) et sur `<URL du panneau>/etat`. |
 
 ## Lancer à la main avec options (test, debug)
 

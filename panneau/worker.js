@@ -7,7 +7,8 @@
 //   des exécutions GitHub) ;
 // - alertes par email via le webhook Zapier (ZAPIER_HOOK_URL) si un envoi
 //   automatique ne peut pas être déclenché, ou si le jeton GitHub expire bientôt.
-// Secrets/variables du Worker : PANEL_TOKEN, GITHUB_TOKEN, ZAPIER_HOOK_URL.
+// Secrets/variables du Worker : PANEL_TOKEN, GITHUB_TOKEN, ZAPIER_HOOK_URL ;
+// stockage KV ETAT (témoin de vie de l'horloge : heure du dernier passage).
 
 const REPO = "sam-fitoussi/Envoi-automatiques-des-emails";
 const JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
@@ -17,6 +18,28 @@ const EMAILS = {
 };
 const ALERTE_TO = "samuel@frst.vc";
 const JOURS_AVANT_EXPIRATION = 14;
+const SILENCE_HORLOGE_MAX_MIN = 30;   // au-delà, le panneau signale l'horloge muette
+
+// ---------------------------------------------------------------- témoin de vie
+
+async function lireDernierTick(env) {
+  if (!env.ETAT) return null;
+  try { return JSON.parse((await env.ETAT.get("dernier_tick")) || "null"); }
+  catch (e) { return null; }
+}
+
+async function noterTick(env, rapport, cron) {
+  if (!env.ETAT) return;
+  await env.ETAT.put("dernier_tick", JSON.stringify({ at: new Date().toISOString(), cron, rapport }));
+}
+
+function etatHorloge(dernier) {
+  if (!dernier) return { ok: false, texte: "Horloge : aucun passage enregistré pour l'instant." };
+  const min = Math.round((Date.now() - new Date(dernier.at)) / 60000);
+  const h = new Date(dernier.at).toLocaleTimeString("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" });
+  return { ok: min <= SILENCE_HORLOGE_MAX_MIN, minutes: min,
+           texte: `Horloge : dernier passage à ${h} (heure de Paris), il y a ${min} min.` };
+}
 
 // ---------------------------------------------------------------- GitHub
 
@@ -257,8 +280,12 @@ function carte(base, key, horaires) {
   </section>`;
 }
 
-function pageHtml(base, lu, ok, err, tokenManquant) {
+function pageHtml(base, lu, ok, err, tokenManquant, horloge) {
   const bandeaux = [];
+  if (horloge && !horloge.ok) {
+    bandeaux.push(`<div class="bandeau err">⚠️ ${esc(horloge.texte)} Les envois automatiques
+      reposent sur ce passage régulier : si le silence dure, vérifier le Worker Cloudflare.</div>`);
+  }
   if (ok) bandeaux.push(`<div class="bandeau ok">✅ ${esc(ok)}</div>`);
   if (err) bandeaux.push(`<div class="bandeau err">⚠️ ${esc(err)}</div>`);
   if (tokenManquant) {
@@ -327,7 +354,7 @@ function pageHtml(base, lu, ok, err, tokenManquant) {
   ${carte(base, "recap_stalling", horaires)}
   ${carte(base, "df_frst", horaires)}
   <footer>Pilote le repo <a href="https://github.com/${REPO}">${REPO}</a> —
-    page réservée à l'équipe, ne pas partager l'URL.<br>${esc(jeton)}</footer>
+    page réservée à l'équipe, ne pas partager l'URL.<br>${horloge ? esc(horloge.texte) + " " : ""}${esc(jeton)}</footer>
 </main>
 </body>
 </html>`;
@@ -351,7 +378,13 @@ export default {
     if (seg[1] === "tick") {
       const dry = url.searchParams.get("dry") !== "0";
       const rapport = await tick(env, { dry });
+      rapport.dernier_passage_cron = await lireDernierTick(env);
       return new Response(JSON.stringify(rapport, null, 2),
+        { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
+    }
+    // /etat : témoin de vie de l'horloge (dernier passage du cron).
+    if (seg[1] === "etat") {
+      return new Response(JSON.stringify(await lireDernierTick(env), null, 2),
         { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
     }
 
@@ -362,7 +395,8 @@ export default {
     if (!tokenManquant) {
       try { lu = await lireHoraires(env); } catch (e) { err = err || e.message; }
     }
-    return new Response(pageHtml(base, lu, ok, err, tokenManquant), {
+    const horloge = etatHorloge(await lireDernierTick(env));
+    return new Response(pageHtml(base, lu, ok, err, tokenManquant, horloge), {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "X-Robots-Tag": "noindex, nofollow",
@@ -373,8 +407,12 @@ export default {
 
   // Déclencheur cron Cloudflare (toutes les 10 minutes).
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(tick(env, { dry: false }).then(
-      (r) => console.log(JSON.stringify(r)),
-      (e) => console.error("tick en échec : " + e.message)));
+    ctx.waitUntil((async () => {
+      let rapport;
+      try { rapport = await tick(env, { dry: false }); }
+      catch (e) { rapport = { erreur: "tick en échec : " + e.message }; }
+      console.log(JSON.stringify(rapport));
+      await noterTick(env, rapport, event.cron);
+    })());
   },
 };
