@@ -8,7 +8,11 @@
 // - alertes par email via le webhook Zapier (ZAPIER_HOOK_URL) si un envoi
 //   automatique ne peut pas être déclenché, ou si le jeton GitHub expire bientôt.
 // Secrets/variables du Worker : PANEL_TOKEN, GITHUB_TOKEN, ZAPIER_HOOK_URL ;
-// stockage KV ETAT (témoin de vie de l'horloge : heure du dernier passage).
+// stockage KV ETAT (témoin de vie de l'horloge : heure du dernier passage) ;
+// Durable Object HORLOGE (alarme auto-réarmée toutes les 10 min : c'est elle
+// l'horloge principale, le cron Cloudflare n'étant qu'un second déclencheur).
+
+import { DurableObject } from "cloudflare:workers";
 
 const REPO = "sam-fitoussi/Envoi-automatiques-des-emails";
 const JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
@@ -31,6 +35,45 @@ async function lireDernierTick(env) {
 async function noterTick(env, rapport, cron) {
   if (!env.ETAT) return;
   await env.ETAT.put("dernier_tick", JSON.stringify({ at: new Date().toISOString(), cron, rapport }));
+}
+
+// Un passage de l'horloge : exécute tick() puis note le résultat. Ne lève jamais.
+async function passageHorloge(env, source) {
+  let rapport;
+  try { rapport = await tick(env, { dry: false }); }
+  catch (e) { rapport = { erreur: "tick en échec : " + e.message }; }
+  console.log(JSON.stringify({ source, ...rapport }));
+  try { await noterTick(env, rapport, source); } catch (e) { console.log("noterTick en échec : " + e.message); }
+  return rapport;
+}
+
+const PAS_ALARME_MS = 10 * 60 * 1000;
+function prochainCreneauAlarme(now = Date.now()) {
+  return Math.floor(now / PAS_ALARME_MS) * PAS_ALARME_MS + PAS_ALARME_MS;
+}
+
+// Horloge principale : un Durable Object unique dont l'alarme se réarme elle-même
+// toutes les 10 minutes (les alarmes sont persistantes et relancées par Cloudflare
+// en cas d'échec). Armée au premier affichage du panneau, puis autonome.
+export class Horloge extends DurableObject {
+  async armer() {
+    const actuelle = await this.ctx.storage.getAlarm();
+    if (actuelle == null) await this.ctx.storage.setAlarm(prochainCreneauAlarme());
+    return this.etat();
+  }
+  async etat() {
+    const a = await this.ctx.storage.getAlarm();
+    return { prochaine_alarme: a == null ? null : new Date(a).toISOString() };
+  }
+  async alarm() {
+    try { await passageHorloge(this.env, "alarme"); }
+    finally { await this.ctx.storage.setAlarm(prochainCreneauAlarme()); }
+  }
+}
+
+function horlogeStub(env) {
+  if (!env.HORLOGE) return null;
+  return env.HORLOGE.get(env.HORLOGE.idFromName("horloge"));
 }
 
 function etatHorloge(dernier) {
@@ -363,11 +406,15 @@ function pageHtml(base, lu, ok, err, tokenManquant, horloge) {
 // ---------------------------------------------------------------- points d'entrée
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const seg = url.pathname.split("/").filter(Boolean);
     if (seg[0] !== env.PANEL_TOKEN) return new Response("Introuvable", { status: 404 });
     const base = url.origin + "/" + env.PANEL_TOKEN;
+
+    // Chaque visite (ré)arme l'horloge si besoin : sans effet si déjà armée.
+    const horlogeDO = horlogeStub(env);
+    if (horlogeDO) ctx.waitUntil(horlogeDO.armer().catch(e => console.log("armer en échec : " + e.message)));
 
     if (request.method === "POST") {
       if (!env.GITHUB_TOKEN) return redirect(base, "err", "Le jeton GitHub n'est pas encore configuré.");
@@ -384,7 +431,9 @@ export default {
     }
     // /etat : témoin de vie de l'horloge (dernier passage du cron).
     if (seg[1] === "etat") {
-      return new Response(JSON.stringify(await lireDernierTick(env), null, 2),
+      const etat = { dernier_passage: await lireDernierTick(env), alarme: null };
+      if (horlogeDO) { try { etat.alarme = await horlogeDO.armer(); } catch (e) { etat.alarme = { erreur: e.message }; } }
+      return new Response(JSON.stringify(etat, null, 2),
         { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
     }
 
@@ -405,14 +454,9 @@ export default {
     });
   },
 
-  // Déclencheur cron Cloudflare (toutes les 10 minutes).
+  // Déclencheur cron Cloudflare (toutes les 10 minutes) : second déclencheur,
+  // redondant avec l'alarme. Sans doublon : tick() vérifie l'historique GitHub.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil((async () => {
-      let rapport;
-      try { rapport = await tick(env, { dry: false }); }
-      catch (e) { rapport = { erreur: "tick en échec : " + e.message }; }
-      console.log(JSON.stringify(rapport));
-      await noterTick(env, rapport, event.cron);
-    })());
+    ctx.waitUntil(passageHorloge(env, "cron " + event.cron));
   },
 };
