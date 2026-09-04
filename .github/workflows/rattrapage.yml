@@ -1,0 +1,32 @@
+name: Filet de sécurité des envois
+
+# L'horloge principale est le Worker Cloudflare (panneau/worker.js), précis à
+# la minute. GitHub exécute ses tâches planifiées avec retard et en saute
+# beaucoup : ce workflow n'est donc qu'un filet — quand il tourne, il vérifie
+# que chaque créneau récent a donné lieu à un envoi, et le rattrape sinon
+# (voir watchdog.py). Il utilise le jeton natif de GitHub, indépendant de
+# celui du panneau.
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Vérifier les créneaux récents et rattraper si besoin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python watchdog.py

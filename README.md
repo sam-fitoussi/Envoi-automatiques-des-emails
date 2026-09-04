@@ -25,6 +25,8 @@ Sous le capot : un Cloudflare Worker (code dans `panneau/worker.js`, déployé
 sur le compte Cloudflare de Samuel sous le nom `envois-frst`) qui déclenche
 les workflows GitHub via un jeton à portée minimale (secret `GITHUB_TOKEN`
 du Worker : Actions en écriture + lecture du contenu, sur ce seul repo).
+Ce même Worker est aussi **l'horloge des envois automatiques** (voir
+ci-dessous) et affiche la date d'expiration du jeton.
 
 ## Changer le jour ou l'heure d'un envoi
 
@@ -40,11 +42,35 @@ Pour modifier : ouvrir `horaires.json` sur GitHub → icône crayon ✏️ →
 changer le jour (en minuscules : lundi … dimanche) ou l'heure (entier
 0-23) → **Commit changes** directement sur `main`. C'est tout.
 
-Mécanique : le workflow `planificateur.yml` tourne toutes les heures et
-envoie chaque email quand le jour et l'heure configurés sont atteints
-(l'envoi part dans les minutes qui suivent l'heure pile). Une valeur
-invalide (ex. « vendredit ») fait passer le run au rouge au lieu de ne
-plus jamais envoyer.
+### Mécanique : qui déclenche l'envoi à l'heure dite ?
+
+**L'horloge, c'est le Worker Cloudflare** (`panneau/worker.js`). Un
+déclencheur cron l'exécute toutes les 10 minutes ; pendant l'heure
+configurée, il lance le workflow d'envoi — sauf si une exécution de ce
+workflow existe déjà depuis le début de l'heure (un clic manuel compte,
+donc jamais de doublon). L'email part dans les minutes qui suivent l'heure
+pile. Pourquoi pas GitHub ? Ses tâches planifiées (`schedule`) sont
+exécutées en retard et **souvent sautées** sur un compte gratuit — le
+premier planificateur, basé dessus, a manqué ses deux premiers créneaux
+réels (lundi 31/08 et vendredi 04/09/2026).
+
+**GitHub reste un filet de sécurité** : `rattrapage.yml` (script
+`watchdog.py`) tourne quand GitHub veut bien et vérifie que chaque créneau
+récent a donné lieu à un envoi ; sinon il le déclenche lui-même (jusqu'à
+4 h après l'heure prévue), et au-delà passe au rouge pour prévenir. Il
+utilise le jeton natif de GitHub, donc il fonctionne même si le jeton du
+panneau a expiré.
+
+**Alertes** : si le Worker ne parvient pas à déclencher un envoi (jeton
+expiré, GitHub injoignable), il envoie un email d'alerte à Samuel via le
+Zap ; il envoie aussi un rappel quotidien pendant les 14 jours qui
+précèdent l'expiration du jeton GitHub. Une valeur invalide dans
+`horaires.json` (ex. « vendredit ») est signalée par le filet (run rouge)
+au lieu d'être ignorée en silence.
+
+Pour tester l'horloge sans rien envoyer : ouvrir
+`<URL du panneau>/tick` — la page renvoie ce qu'elle ferait maintenant
+(simulation ; `?dry=0` pour exécuter réellement).
 
 ## Envoyer un email à la main (réunion décalée, renvoi…)
 
@@ -81,8 +107,9 @@ Outlook (samuel@frst.vc) via un webhook Zapier.
 ## Architecture
 
 ```
-GitHub Actions (planificateur.yml, toutes les heures + horaires.json)
-   └─ weekly_recap.py
+Worker Cloudflare envois-frst (cron toutes les 10 min, lit horaires.json)
+   └─ déclenche GitHub Actions (envoyer-stalling.yml / envoyer-df.yml)
+        └─ weekly_recap.py
         ├─ API Pipedrive (lecture seule : GET uniquement)
         │    ├─ /api/v2/deals?stage_id=…&status=open   (pagination par curseur)
         │    ├─ /v1/deals/{id}/participants  →  /api/v2/persons/{id}
@@ -99,6 +126,14 @@ GitHub Actions (planificateur.yml, toutes les heures + horaires.json)
 |---|---|
 | `PIPEDRIVE_API_TOKEN` | Token API Pipedrive (Paramètres → Préférences personnelles → API) |
 | `ZAPIER_HOOK_URL` | URL du Catch Hook du Zap qui envoie le mail via Outlook |
+
+## Secrets du Worker Cloudflare `envois-frst`
+
+| Secret | Rôle |
+|---|---|
+| `GITHUB_TOKEN` | Jeton GitHub fine-grained limité à ce repo (Actions : Read and write ; Contents : Read-only). Il expire : la date est affichée en bas du panneau, un rappel part 14 jours avant. Pour le renouveler : recréer le même jeton, puis `PUT …/workers/scripts/envois-frst/secrets` (ou demander à Claude). |
+| `ZAPIER_HOOK_URL` | Même URL que le secret GitHub ; sert aux emails d'alerte. |
+| `PANEL_TOKEN` (variable) | Segment secret de l'URL du panneau. |
 
 ## Lancer à la main avec options (test, debug)
 
@@ -120,5 +155,9 @@ ouvrir `out/recap.html`.
 - En cas d'erreur (API en panne, token invalide…), le script envoie quand même
   un mail « Aucun deal récupéré — vérifier la connexion Pipedrive » avec la
   trace, et le run GitHub Actions passe au rouge (notification GitHub).
-- Le cron `schedule` ne s'exécute que depuis la branche par défaut (`main`) :
-  penser à merger pour activer l'envoi hebdomadaire.
+- Les envois automatiques sont déclenchés par le Worker Cloudflare (précis à
+  la minute) et vérifiés/rattrapés par `rattrapage.yml` ; l'horaire de
+  référence est toujours `horaires.json` sur `main`.
+- Aucun échec silencieux : envoi impossible → email d'alerte à Samuel ;
+  créneau manqué malgré tout → run « Filet de sécurité » rouge (notification
+  GitHub).
