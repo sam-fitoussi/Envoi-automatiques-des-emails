@@ -51,14 +51,15 @@ elle est armée automatiquement à la première visite du panneau). À chaque
 passage, pendant l'heure configurée, elle lance le workflow d'envoi — sauf
 si une exécution de ce workflow existe déjà depuis le début de l'heure (un
 clic manuel compte, donc jamais de doublon). L'email part dans les minutes
-qui suivent l'heure pile. Un déclencheur cron Cloudflare (`*/10 * * * *`)
-appelle la même logique en second rideau. Pourquoi pas GitHub ? Ses tâches
-planifiées (`schedule`) sont exécutées en retard et **souvent sautées** sur
-un compte gratuit — le premier planificateur, basé dessus, a manqué ses
-deux premiers créneaux réels (lundi 31/08 et vendredi 04/09/2026). Et
-pourquoi pas seulement le cron Cloudflare ? Configuré le 04/09, il n'a
-produit aucune exécution en plus d'une heure (aucune trace dans les
-analytics ni dans le témoin de vie), d'où l'alarme comme horloge principale.
+qui suivent l'heure pile. Pourquoi pas GitHub ? Ses tâches planifiées
+(`schedule`) sont exécutées en retard et **souvent sautées** sur un compte
+gratuit — le premier planificateur, basé dessus, a manqué ses deux premiers
+créneaux réels (lundi 31/08 et vendredi 04/09/2026). Et pourquoi pas un cron
+Cloudflare ? Celui configuré le 04/09 n'a produit aucune exécution en plus
+d'une heure (aucune trace dans les analytics ni dans le témoin de vie), y
+compris après recréation ; il a été retiré, car un second déclencheur qui se
+réveillerait au même instant que l'alarme risquerait un envoi en double.
+**Ne pas en rajouter un.**
 
 **GitHub reste un filet de sécurité** : `rattrapage.yml` (script
 `watchdog.py`) tourne quand GitHub veut bien et vérifie que chaque créneau
@@ -142,7 +143,7 @@ Worker Cloudflare envois-frst (alarme toutes les 10 min, lit horaires.json)
 | `GITHUB_TOKEN` | Jeton GitHub fine-grained limité à ce repo (Actions : Read and write ; Contents : Read-only). Il expire : la date est affichée en bas du panneau, un rappel part 14 jours avant. Pour le renouveler : recréer le même jeton, puis `PUT …/workers/scripts/envois-frst/secrets` (ou demander à Claude). |
 | `ZAPIER_HOOK_URL` | Même URL que le secret GitHub ; sert aux emails d'alerte. |
 | `PANEL_TOKEN` (variable) | Segment secret de l'URL du panneau. |
-| `ETAT` (espace KV `envois-frst-etat`) | Témoin de vie de l'horloge : heure et compte rendu du dernier passage (alarme ou cron). Visible en bas du panneau (bandeau rouge si silence > 30 min) et sur `<URL du panneau>/etat`. |
+| `ETAT` (espace KV `envois-frst-etat`) | Témoin de vie de l'horloge : heure et compte rendu du dernier passage de l'alarme. Visible en bas du panneau (bandeau rouge si silence > 30 min) et sur `<URL du panneau>/etat`. |
 | `HORLOGE` (Durable Object, classe `Horloge`, migration `v1` / `new_sqlite_classes`) | L'horloge elle-même : une alarme auto-réarmée toutes les 10 minutes. Si elle disparaissait, une simple visite du panneau (ou de `/etat`) la réarme. |
 
 ## Lancer à la main avec options (test, debug)

@@ -2,15 +2,16 @@
 // Pilote le repo GitHub sam-fitoussi/Envoi-automatiques-des-emails :
 // - page web (URL secrète PANEL_TOKEN) : envoi manuel immédiat des deux emails,
 //   modification des horaires (workflow set-horaire.yml) ;
-// - déclencheur cron (toutes les 10 min) : lance l'envoi de chaque email à
-//   l'heure configurée dans horaires.json, sans doublon (vérifie l'historique
-//   des exécutions GitHub) ;
+// - horloge (alarme Durable Object toutes les 10 min) : lance l'envoi de
+//   chaque email à l'heure configurée dans horaires.json, sans doublon
+//   (vérifie l'historique des exécutions GitHub) ;
 // - alertes par email via le webhook Zapier (ZAPIER_HOOK_URL) si un envoi
 //   automatique ne peut pas être déclenché, ou si le jeton GitHub expire bientôt.
 // Secrets/variables du Worker : PANEL_TOKEN, GITHUB_TOKEN, ZAPIER_HOOK_URL ;
 // stockage KV ETAT (témoin de vie de l'horloge : heure du dernier passage) ;
-// Durable Object HORLOGE (alarme auto-réarmée toutes les 10 min : c'est elle
-// l'horloge principale, le cron Cloudflare n'étant qu'un second déclencheur).
+// Durable Object HORLOGE (alarme auto-réarmée toutes les 10 min). Pas de cron
+// Cloudflare : celui configuré le 04/09/2026 ne s'est jamais déclenché, et un
+// second déclencheur simultané risquerait un envoi en double.
 
 import { DurableObject } from "cloudflare:workers";
 
@@ -32,9 +33,9 @@ async function lireDernierTick(env) {
   catch (e) { return null; }
 }
 
-async function noterTick(env, rapport, cron) {
+async function noterTick(env, rapport, source) {
   if (!env.ETAT) return;
-  await env.ETAT.put("dernier_tick", JSON.stringify({ at: new Date().toISOString(), cron, rapport }));
+  await env.ETAT.put("dernier_tick", JSON.stringify({ at: new Date().toISOString(), source, rapport }));
 }
 
 // Un passage de l'horloge : exécute tick() puis note le résultat. Ne lève jamais.
@@ -180,7 +181,7 @@ const AIDE_JETON = "Pour rétablir le panneau : GitHub → Settings → Develope
 
 // ---------------------------------------------------------------- horloge
 
-// Un « tick » : appelé toutes les 10 minutes par le cron, ou à la main via
+// Un « tick » : appelé toutes les 10 minutes par l'alarme, ou à la main via
 // /tick (mode simulation par défaut). Renvoie un compte rendu.
 async function tick(env, { dry = false, now = new Date() } = {}) {
   const t = maintenantParis(now);
@@ -425,11 +426,11 @@ export default {
     if (seg[1] === "tick") {
       const dry = url.searchParams.get("dry") !== "0";
       const rapport = await tick(env, { dry });
-      rapport.dernier_passage_cron = await lireDernierTick(env);
+      rapport.dernier_passage = await lireDernierTick(env);
       return new Response(JSON.stringify(rapport, null, 2),
         { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
     }
-    // /etat : témoin de vie de l'horloge (dernier passage du cron).
+    // /etat : témoin de vie de l'horloge (dernier passage, prochaine alarme).
     if (seg[1] === "etat") {
       const etat = { dernier_passage: await lireDernierTick(env), alarme: null };
       if (horlogeDO) { try { etat.alarme = await horlogeDO.armer(); } catch (e) { etat.alarme = { erreur: e.message }; } }
@@ -452,11 +453,5 @@ export default {
         "Cache-Control": "no-store",
       },
     });
-  },
-
-  // Déclencheur cron Cloudflare (toutes les 10 minutes) : second déclencheur,
-  // redondant avec l'alarme. Sans doublon : tick() vérifie l'historique GitHub.
-  async scheduled(event, env, ctx) {
-    ctx.waitUntil(passageHorloge(env, "cron " + event.cron));
   },
 };
