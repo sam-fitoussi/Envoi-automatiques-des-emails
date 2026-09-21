@@ -22,7 +22,6 @@ import html
 import os
 import sys
 import traceback
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from weekly_recap import (
@@ -30,10 +29,9 @@ from weekly_recap import (
     GREEN,
     RED,
     clean_note_html,
+    collecter_sections,
     custom_field,
     ensure_url,
-    fetch_deal_extras,
-    fetch_stage_deals,
     fr_date,
     html_to_text,
     send_via_zapier,
@@ -156,7 +154,8 @@ def build_email(sections, warning=None):
 
 
 def build_error_email(err):
-    msg = "Aucun deal récupéré — vérifier la connexion Pipedrive."
+    msg = ("Aucun deal récupéré malgré plusieurs tentatives — vérifier la "
+           "connexion Pipedrive, puis relancer l'envoi depuis le panneau.")
     html_doc = (
         '<div style="font-family:sans-serif; font-size:15px;">'
         f'<p style="color:{RED}; font-weight:bold;">{msg}</p>'
@@ -182,16 +181,11 @@ def main():
         if not os.environ.get("PIPEDRIVE_API_TOKEN"):
             raise RuntimeError("PIPEDRIVE_API_TOKEN manquant dans l'environnement")
 
-        sections = []
-        for name, stage_id in STAGES:
-            deals = fetch_stage_deals(stage_id)
-            # arrivées les plus récentes dans le stage en premier
-            deals.sort(key=lambda d: d.get("stage_change_time") or d.get("add_time") or "",
-                       reverse=True)
-            with ThreadPoolExecutor(max_workers=6) as pool:
-                extras = list(pool.map(fetch_deal_extras, deals))
-            sections.append((name, list(zip(deals, extras))))
-            print(f"{name} (stage {stage_id}) : {len(deals)} deals")
+        # arrivées les plus récentes dans le stage en premier
+        sections = collecter_sections(
+            STAGES, lambda deals: deals.sort(
+                key=lambda d: d.get("stage_change_time") or d.get("add_time") or "",
+                reverse=True))
 
         total = sum(len(items) for _, items in sections)
         warning = ("Aucun deal récupéré — vérifier la connexion Pipedrive."
