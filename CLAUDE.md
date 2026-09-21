@@ -59,3 +59,7 @@ ouvrir `/etat` pour confirmer que l'alarme est armée.
   32/4/3 (PM/Instruction/Call done) ; clés des champs personnalisés en tête
   des scripts.
 - Ne jamais écrire dans Pipedrive depuis ce projet.
+- Tous les appels Pipedrive passent par `api_get` (reprises sur erreur
+  réseau / 429 / 5xx, session partagée) et la collecte par
+  `collecter_sections` (reprise complète si Pipedrive reste injoignable).
+  Ne pas appeler `requests` directement pour Pipedrive.

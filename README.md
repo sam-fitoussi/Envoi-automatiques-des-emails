@@ -163,9 +163,15 @@ ouvrir `out/recap.html`.
 ## Garde-fous
 
 - Lecture seule sur Pipedrive par construction : le script n'émet que des GET.
-- En cas d'erreur (API en panne, token invalide…), le script envoie quand même
-  un mail « Aucun deal récupéré — vérifier la connexion Pipedrive » avec la
-  trace, et le run GitHub Actions passe au rouge (notification GitHub).
+- Réseau : chaque requête Pipedrive est réessayée jusqu'à 6 fois (attente
+  1 → 16 s) sur coupure de connexion, timeout, 429 ou 5xx, et toute la
+  collecte est reprise jusqu'à 3 fois (60 s de pause) si Pipedrive reste
+  injoignable. Une coupure isolée (cas du 21/09/2026) ne fait donc plus
+  échouer l'envoi.
+- En cas d'erreur persistante (API en panne, token invalide…), le script
+  envoie quand même un mail « Aucun deal récupéré malgré plusieurs
+  tentatives » avec la trace, et le run GitHub Actions passe au rouge
+  (notification GitHub). Relancer ensuite depuis le panneau.
 - Les envois automatiques sont déclenchés par le Worker Cloudflare (précis à
   la minute) et vérifiés/rattrapés par `rattrapage.yml` ; l'horaire de
   référence est toujours `horaires.json` sur `main`.
