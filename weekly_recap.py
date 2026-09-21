@@ -31,9 +31,27 @@ from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
+from requests.adapters import HTTPAdapter
 
 PARIS = ZoneInfo("Europe/Paris")
 API = "https://api.pipedrive.com"
+
+# Robustesse réseau. Un envoi fait ~125 requêtes Pipedrive en parallèle ; une
+# seule connexion coupée (« Connection reset by peer », 21/09/2026) faisait
+# échouer tout l'email. Chaque requête est donc réessayée avec attente
+# croissante, et toute la collecte est reprise si Pipedrive reste injoignable.
+TENTATIVES_REQUETE = 6        # attentes : 1, 2, 4, 8, 16 s
+TENTATIVES_COLLECTE = 3
+PAUSE_COLLECTE_S = 60
+ERREURS_RESEAU = (requests.exceptions.ConnectionError,
+                  requests.exceptions.Timeout,
+                  requests.exceptions.ChunkedEncodingError)
+
+# Session partagée : les connexions TLS sont réutilisées entre requêtes (moins
+# de poignées de main, donc moins d'occasions de coupure). Le pool urllib3 est
+# sûr entre threads.
+SESSION = requests.Session()
+SESSION.mount("https://", HTTPAdapter(pool_connections=10, pool_maxsize=10))
 
 # (nom affiché, stage_id)
 STAGES = [
@@ -57,21 +75,33 @@ GREEN = "#1a7f37"   # partie "AI findings" des notes
 # ---------------------------------------------------------------- Pipedrive
 
 def api_get(path, **params):
+    """GET Pipedrive avec reprises : erreur réseau, timeout, 429 et 5xx sont
+    réessayés avec attente croissante ; une erreur 4xx autre que 429 (token
+    invalide, ressource absente) est définitive."""
     token = os.environ["PIPEDRIVE_API_TOKEN"]
-    last = None
-    for attempt in range(5):
-        r = requests.get(f"{API}{path}", params=params,
-                         headers={"x-api-token": token}, timeout=30)
-        if r.status_code == 429:
-            time.sleep(1.5 * (attempt + 1))
-            last = r
-            continue
-        r.raise_for_status()
-        payload = r.json()
-        if not payload.get("success", True):
-            raise RuntimeError(f"Pipedrive success=false sur {path}: {str(payload)[:500]}")
-        return payload
-    raise RuntimeError(f"Rate limit persistant sur {path} (HTTP {last.status_code if last else '?'})")
+    derniere = None
+    for tentative in range(1, TENTATIVES_REQUETE + 1):
+        try:
+            r = SESSION.get(f"{API}{path}", params=params,
+                            headers={"x-api-token": token}, timeout=30)
+            if r.status_code == 429 or r.status_code >= 500:
+                derniere = f"HTTP {r.status_code}"
+            else:
+                r.raise_for_status()
+                payload = r.json()
+                if not payload.get("success", True):
+                    raise RuntimeError(
+                        f"Pipedrive success=false sur {path}: {str(payload)[:500]}")
+                return payload
+        except ERREURS_RESEAU as e:
+            derniere = f"{type(e).__name__}: {e}"
+        if tentative < TENTATIVES_REQUETE:
+            attente = 2 ** (tentative - 1)
+            print(f"Pipedrive {path} : {derniere} — nouvel essai dans {attente}s "
+                  f"({tentative}/{TENTATIVES_REQUETE})", file=sys.stderr)
+            time.sleep(attente)
+    raise RuntimeError(f"Pipedrive injoignable sur {path} après "
+                       f"{TENTATIVES_REQUETE} tentatives ({derniere})")
 
 
 def fetch_stage_deals(stage_id):
@@ -138,6 +168,31 @@ def fetch_deal_extras(deal):
         "cofounders": [persons[i] for i in ids if i != primary_id],
         "notes": notes,
     }
+
+
+def collecter_sections(stages, trier):
+    """Pour chaque (nom, stage_id) : deals ouverts triés par `trier(deals)` et
+    leurs compléments (participants, notes), récupérés en parallèle.
+    Si Pipedrive reste injoignable malgré les reprises par requête, toute la
+    collecte est reprise après une pause (panne de quelques minutes)."""
+    for tentative in range(1, TENTATIVES_COLLECTE + 1):
+        try:
+            sections = []
+            for name, stage_id in stages:
+                deals = fetch_stage_deals(stage_id)
+                trier(deals)
+                with ThreadPoolExecutor(max_workers=6) as pool:
+                    extras = list(pool.map(fetch_deal_extras, deals))
+                sections.append((name, list(zip(deals, extras))))
+                print(f"{name} (stage {stage_id}) : {len(deals)} deals")
+            return sections
+        except (RuntimeError, requests.exceptions.RequestException) as e:
+            if tentative == TENTATIVES_COLLECTE:
+                raise
+            print(f"Collecte Pipedrive en échec ({e}) — reprise complète dans "
+                  f"{PAUSE_COLLECTE_S}s ({tentative}/{TENTATIVES_COLLECTE})",
+                  file=sys.stderr)
+            time.sleep(PAUSE_COLLECTE_S)
 
 
 # ---------------------------------------------------------------- dates
@@ -464,7 +519,8 @@ def build_email(sections, now, warning=None):
 def build_error_email(now, err):
     date = now.astimezone(PARIS).strftime("%d/%m/%Y")
     subject = f"Recap Stalling — {date}"
-    msg = "Aucun deal récupéré — vérifier la connexion Pipedrive."
+    msg = ("Aucun deal récupéré malgré plusieurs tentatives — vérifier la "
+           "connexion Pipedrive, puis relancer l'envoi depuis le panneau.")
     html_doc = (
         '<div style="font-family:sans-serif; font-size:15px;">'
         f'<p style="color:{RED}; font-weight:bold;">{msg}</p>'
@@ -521,14 +577,9 @@ def main():
         if not os.environ.get("PIPEDRIVE_API_TOKEN"):
             raise RuntimeError("PIPEDRIVE_API_TOKEN manquant dans l'environnement")
 
-        sections = []
-        for name, stage_id in STAGES:
-            deals = fetch_stage_deals(stage_id)
-            deals.sort(key=lambda d: d.get("add_time") or "9999")
-            with ThreadPoolExecutor(max_workers=6) as pool:
-                extras = list(pool.map(fetch_deal_extras, deals))
-            sections.append((name, list(zip(deals, extras))))
-            print(f"{name} (stage {stage_id}) : {len(deals)} deals")
+        # plus anciens dans le CRM en premier
+        sections = collecter_sections(
+            STAGES, lambda deals: deals.sort(key=lambda d: d.get("add_time") or "9999"))
 
         total = sum(len(items) for _, items in sections)
         warning = ("Aucun deal récupéré — vérifier la connexion Pipedrive."
